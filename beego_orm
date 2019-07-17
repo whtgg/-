@@ -1,0 +1,482 @@
+模型关系
+  # 外键始终在子表上
+  #一个用户对应一个简介；一个简介对应一个用户；
+  one2one:User(子表) -> Profile（主表）;one2one:Profile -> User 
+
+  #一个邮件对应一个用户；一个用户有多个邮件；
+  one2many:Post(子表) -> User（主表）;many2one:User -> Post 
+
+  #一个邮件对应多个标签；一个标签对应多个邮件；
+  many2many:Post(子表) -> Tag（主表）;many2many:Tag -> Post 
+  
+新建4个结构体
+  使用标签`orm:"column(id)`对属性进行标注，用于解析。
+  标注逻辑外键，自动建表时不会生成外键。
+    `orm:"rel(one)"` 表示one2one
+    `orm:"rel(fk)"`  表示one2many
+    `orm:"rel(m2m)"` 表示many2many
+    `orm:"reverse(one)"` `orm:"reverse(one)"`  标注反向关系
+    
+type User struct {
+⇥   Id      int      `orm:"column(id);auto" description:"id"`
+⇥   Name    string   `orm:"column(name)" description:"name"`
+⇥   Profile *Profile `orm:"rel(one)"` // OneToOne relation
+⇥   //Posts   []*Post  `orm:"reverse(many)"`  //one2many情况下，不要写reverse
+}
+
+type Profile struct {
+⇥   Id  int   `orm:"column(id);auto" description:"id"`
+⇥   Age int16 `orm:"column(age)" description:"age"`
+⇥   //User *User `orm:"reverse(one)"` // Reverse relationship (optional)
+}
+
+type Post struct {
+⇥   Id    int    `orm:"column(id);auto" description:"id"`
+⇥   Title string `orm:"column(title)" description:"title"`
+⇥   User  *User  `orm:"rel(fk)"`  // OneToMany relation
+⇥   Tags  []*Tag `orm:"rel(m2m)"` // m2m relation
+}
+
+type Tag struct {
+⇥   Id   int    `orm:"column(id);auto" description:"id"`
+⇥   Name string `orm:"column(name)" description:"name"`
+⇥   Posts []*Post `orm:"reverse(many)"`
+}
+
+
+
+初始化操作
+
+//ormer
+var O orm.Ormer
+
+func init() {
+⇥   //注册驱动
+⇥   orm.RegisterDriver("mysql", orm.DRMySQL)
+⇥   //注册默认数据库
+⇥   orm.RegisterDataBase("default", "mysql", "root:root@tcp(192.168.99.100:3308)/test?charset=utf8")
+⇥   //注册model
+⇥   orm.RegisterModel(new(User), new(Profile), new(Post), new(Tag))
+⇥   //自动建表
+⇥   orm.RunSyncdb("default", false, true)
+⇥   //初始化ormer
+⇥   O = orm.NewOrm()
+⇥   //初始化数据
+⇥   datainit()
+
+}
+生成的database信息
+执行之前，需要创建数据库test，并配置数据库信息，字符编码全部设置为utf8
+
+执行：注册model，自动建表 即可得到如下信息。
+mysql> show tables;
++----------------+
+| Tables_in_test |
++----------------+
+| post           |
+| post_tags      |
+| profile        |
+| tag            |
+| user           |
++----------------+
+5 rows in set (0.00 sec)
+
+mysql> desc post;
++---------+--------------+------+-----+---------+----------------+
+| Field   | Type         | Null | Key | Default | Extra          |
++---------+--------------+------+-----+---------+----------------+
+| id      | int(11)      | NO   | PRI | NULL    | auto_increment |
+| title   | varchar(255) | NO   |     |         |                |
+| user_id | int(11)      | NO   |     | NULL    |                |
++---------+--------------+------+-----+---------+----------------+
+3 rows in set (0.00 sec)
+
+mysql> desc post_tags;
++---------+------------+------+-----+---------+----------------+
+| Field   | Type       | Null | Key | Default | Extra          |
++---------+------------+------+-----+---------+----------------+
+| id      | bigint(20) | NO   | PRI | NULL    | auto_increment |
+| post_id | int(11)    | NO   |     | NULL    |                |
+| tag_id  | int(11)    | NO   |     | NULL    |                |
++---------+------------+------+-----+---------+----------------+
+3 rows in set (0.00 sec)
+
+mysql> desc profile;
++-------+-------------+------+-----+---------+----------------+
+| Field | Type        | Null | Key | Default | Extra          |
++-------+-------------+------+-----+---------+----------------+
+| id    | int(11)     | NO   | PRI | NULL    | auto_increment |
+| age   | smallint(6) | NO   |     | 0       |                |
++-------+-------------+------+-----+---------+----------------+
+2 rows in set (0.00 sec)
+
+mysql> desc tag;
++-------+--------------+------+-----+---------+----------------+
+| Field | Type         | Null | Key | Default | Extra          |
++-------+--------------+------+-----+---------+----------------+
+| id    | int(11)      | NO   | PRI | NULL    | auto_increment |
+| name  | varchar(255) | NO   |     |         |                |
++-------+--------------+------+-----+---------+----------------+
+2 rows in set (0.00 sec)
+
+mysql> desc user;
++------------+--------------+------+-----+---------+----------------+
+| Field      | Type         | Null | Key | Default | Extra          |
++------------+--------------+------+-----+---------+----------------+
+| id         | int(11)      | NO   | PRI | NULL    | auto_increment |
+| name       | varchar(255) | NO   |     |         |                |
+| profile_id | int(11)      | NO   | UNI | NULL    |                |
++------------+--------------+------+-----+---------+----------------+
+3 rows in set (0.00 sec)
+
+
+database生成规则
+1.添加rel（one）、rel（fk）的属性会生成 表名_id的字段，rel(one)时生成字段key为unique
+type User struct {
+    Profile *Profile `orm:"rel(one)"`
+}
+
+type Profile struct {
+    User *User `orm:"reverse(one)"`  //可以省略
+}
+---->
+mysql> desc user;
++------------+--------------+------+-----+---------+----------------+
+| Field      | Type         | Null | Key | Default | Extra          |
++------------+--------------+------+-----+---------+----------------+
+| id         | int(11)      | NO   | PRI | NULL    | auto_increment |
+| name       | varchar(255) | NO   |     |         |                |
+| profile_id | int(11)      | NO   | UNI | NULL    |                |
++------------+--------------+------+-----+---------+----------------+
+2.rel（m2m）、reverse（many）这一对字段 会生成关系对应表 子表_主表s 主键自增
+
+type Post struct {
+    Tags  []*Tag `orm:"rel(m2m)"` // m2m relation
+}
+
+type Tag struct {
+    Posts []*Post `orm:"reverse(many)"`
+}
+---->
+mysql> desc post_tags;
++---------+------------+------+-----+---------+----------------+
+| Field   | Type       | Null | Key | Default | Extra          |
++---------+------------+------+-----+---------+----------------+
+| id      | bigint(20) | NO   | PRI | NULL    | auto_increment |
+| post_id | int(11)    | NO   |     | NULL    |                |
+| tag_id  | int(11)    | NO   |     | NULL    |                |
++---------+------------+------+-----+---------+----------------+
+
+
+初始化数据
+func datainit() {
+⇥   //rel  : 自动生成外键为 表名_id
+⇥   sql1 := "insert into user (name,profile_id) values ('ming',1),('hua',2),('qiang',3);"
+⇥   sql2 := "insert into profile (age) values (16),(14),(15);"
+⇥   sql3 := "insert into tag (name) values ('offical'),('beta'),('dev');"
+⇥   sql4 := "insert into post (title,user_id) values ('paper1',1),('paper2',1),('paper3',2),('paper4',3),('paper5',3);"
+⇥   // m2m 生成的 表名：子表_主表s  主键自增
+⇥   sql5 := "insert into post_tags (tag_id, post_id) values (1,1),(1,3),(2,2),(3,3),(2,4),(3,4),(3,5); "
+
+    //使用Raw（）.Exec（）执行sql
+⇥   O.Raw(sql1).Exec()
+⇥   O.Raw(sql2).Exec()
+⇥   O.Raw(sql3).Exec()
+⇥   O.Raw(sql4).Exec()
+⇥   O.Raw(sql5).Exec()
+}
+
+
+查询
+one2one查询
+unc one2one() {
+⇥   //one to one :主表Profile 子表User [常用方式：使用级联查询全部数据]
+⇥   fmt.Println("one2one-------------------------------")
+⇥   //1.通过已知的 子表User数据，查询主表Profile数据
+⇥   user := &User{Id: 1}
+⇥   O.Read(user) //查询子表
+⇥   if user.Profile != nil {
+⇥   ⇥   O.Read(user.Profile)
+⇥   }
+⇥   fmt.Println("1.二次查询 user now:", user)
+⇥   fmt.Println("1.二次查询 profile now:", user.Profile)
+⇥   fmt.Println("-------------------------------")
+⇥   //2.级联查询
+⇥   user = &User{}
+⇥   O.QueryTable("user").Filter("Id", 1).RelatedSel().One(user)
+⇥   fmt.Println("2.级联查询 user:", user)
+⇥   fmt.Println("2.级联查询 profile:", user.Profile)
+⇥   fmt.Println("-------------------------------")
+⇥   //3.reverse查询 通过子表条件 查询主表 ,此时并没有获取另一个表的数据
+⇥   profile := Profile{}
+⇥   O.QueryTable("profile").Filter("User__Id", 1).One(&profile)
+⇥   fmt.Println("3.reserve 查询 profile:", profile, "条件 user id:1")
+
+⇥   profiles := []*Profile{}
+⇥   O.QueryTable("profile").Filter("User__Name", "ming").One(&profiles)
+⇥   for _, a := range profiles {
+⇥   ⇥   fmt.Println("3.reserve 查询 profile:", a, "条件 user name:ming")
+⇥   }
+⇥   fmt.Println("-------------------------------")
+}
+
+one2many查询
+func one2many() {
+⇥   //one to many : 主表User 子表Post [常用方式：使用级联查询全部数据]
+⇥   fmt.Println("one2many-------------------------------")
+⇥   //1.级联查询
+⇥   var posts []*Post
+⇥   O.QueryTable("post").Filter("User__Id", 1).RelatedSel().All(&posts)
+⇥   for _, v := range posts {
+⇥   ⇥   fmt.Println("1.级联查询 post:", v)
+⇥   ⇥   fmt.Println("1.级联查询 post.user.name:", v.User.Name)
+⇥   }
+⇥   fmt.Println("-------------------------------")
+⇥   //2.reverse 查询
+⇥   var user User
+⇥   err := O.QueryTable("user").Filter("Post__Title", "paper1").Limit(1).One(&user)
+⇥   if err == nil {
+⇥   ⇥   fmt.Println("2.reverse 查询 user:", user)
+⇥   } else {
+⇥   ⇥   fmt.Println("err:", err)
+⇥   }
+⇥   fmt.Println("-------------------------------")
+
+}
+
+
+many2many查询
+func many2many() {
+⇥   //many to many : 主表 Tag 子表Post
+⇥   //1.reverse 查询
+⇥   fmt.Println("many2many-------------------------------")
+⇥   var posts []*Post
+⇥   O.QueryTable("post").Filter("Tags__Tag__Name", "offical").All(&posts)
+⇥   for _, v := range posts {
+⇥   ⇥   fmt.Println("1.reverse 查询 post:", v)
+⇥   }
+⇥   fmt.Println("-------------------------------")
+
+⇥   //reverse 查询
+⇥   var tags []*Tag
+⇥   O.QueryTable("tag").Filter("Posts__Post__Title", "paper1").All(&tags)
+⇥   for _, x := range tags {
+⇥   ⇥   fmt.Println("2.reverse 查询 tag:", x)
+⇥   }
+⇥   fmt.Println("-------------------------------")
+⇥   //3.级联查询
+⇥   //可以创建post_tags表的结构体MapPostTag，包含Post、Tag
+⇥   //使用O.QueryTable("post_tags").RelatedSel().All(&MapPostTag)进行查询
+
+}
+
+比较
+
+我们常用的left join 查询全部数据的两种方式：
+
+var entry Entry
+O.QueryTable("子表").RelatedSel().All(&entry)
+
+
+var maps []orm.Params
+sql:="xxx;"
+O.Raw(sql).Values(&maps)
+
+通过如下代码进行返回比较响应json
+
+//定义controller
+type UserController struct {
+⇥   beego.Controller
+}
+
+//定义urlmap到具体方法
+func (c *UserController) URLMapping() {
+⇥   c.Mapping("GetAll", c.GetAll)
+}
+
+func main() {
+⇥   //注册路由
+⇥   beego.Router("/user", &UserController{}, "get:GetAll")
+⇥   //启动
+⇥   beego.Run()
+}
+
+/*
+//使用relatedsel自动级联查询
+func (c *UserController) GetAll() {
+⇥   var users []*User
+⇥   O.QueryTable("user").RelatedSel().All(&users)
+⇥   c.Data["json"] = users
+⇥   c.ServeJSON()
+}
+*/
+
+//使用原生sql进行查询
+func (c *UserController) GetAll() {
+⇥   var maps []orm.Params
+⇥   sql := `
+⇥   ⇥   select * from user t1
+⇥   ⇥   left join profile t2 on t1.profile_id=t2.id
+⇥   `
+⇥   O.Raw(sql).Values(&maps)
+⇥   c.Data["json"] = maps
+⇥   c.ServeJSON()
+}
+
+使用relatedsel自动级联查询 json：
+
+[
+  {
+    "Id": 1,
+    "Name": "ming",
+    "Profile": {
+      "Id": 1,
+      "Age": 16
+    }
+  },
+  {
+    "Id": 2,
+    "Name": "hua",
+    "Profile": {
+      "Id": 2,
+      "Age": 14
+    }
+  },
+  {
+    "Id": 3,
+    "Name": "qiang",
+    "Profile": {
+      "Id": 3,
+      "Age": 15
+    }
+  }
+]
+使用原生sql进行查询 json：
+
+[
+  {
+    "age": "16",
+    "id": "1",
+    "name": "ming",
+    "profile_id": "1"
+  },
+  {
+    "age": "14",
+    "id": "2",
+    "name": "hua",
+    "profile_id": "2"
+  },
+  {
+    "age": "15",
+    "id": "3",
+    "name": "qiang",
+    "profile_id": "3"
+  }
+]
+load related查询
+func loadRelatedField() {
+⇥   //适用于所有关系模型 one2one one2m m2m
+⇥   fmt.Println("one2one:loadRelated---------------------")
+⇥   user := User{Id: 1}
+⇥   if err := O.Read(&user); err == nil {
+⇥   ⇥   O.LoadRelated(&user, "Profile") //参数中写入需要关联的字段即可
+⇥   ⇥   fmt.Println("user:", user)
+⇥   ⇥   fmt.Println("user.profile:", user.Profile)
+⇥   }
+
+⇥   post := Post{Id: 1}
+⇥   if err := O.Read(&post); err == nil {
+⇥   ⇥   O.LoadRelated(&post, "Tags")
+⇥   ⇥   for _, v := range post.Tags {
+⇥   ⇥   ⇥   fmt.Println("tag:", v)
+⇥   ⇥   }
+⇥   }
+
+⇥   tag := Tag{Id: 1}
+⇥   if err := O.Read(&tag); err == nil {
+⇥   ⇥   O.LoadRelated(&tag, "Posts")
+⇥   ⇥   for _, v := range tag.Posts {
+⇥   ⇥   ⇥   fmt.Println("post:", v)
+⇥   ⇥   }
+⇥   }
+
+}
+
+插入
+单表插入
+//单表插入
+⇥   fmt.Println("单表插入-------------")
+⇥   profile:=Profile{Age:18}
+⇥   id,err:=O.Insert(&profile)
+⇥   fmt.Println("返回插入的id:",id)
+
+
+one2one one2many插入
+//one2one插入
+⇥   err := O.Begin() //开启事物
+⇥   //插入主表
+⇥   profile := Profile{Age: 19}
+⇥   id, err := O.Insert(&profile)
+⇥   if err != nil {
+⇥   ⇥   O.Rollback()
+⇥   } else {
+⇥   ⇥   fmt.Println("success insert profile")
+⇥   }
+⇥   //插入子表
+⇥   user := User{Name: "kakaxi", Profile: &Profile{Id: int(id)}}
+⇥   _, err = O.Insert(&user)
+⇥   if err != nil {
+⇥   ⇥   O.Rollback()
+⇥   } else {
+⇥   ⇥   fmt.Println("success insert user")
+⇥   }
+⇥   err = O.Commit()
+
+
+m2m插入
+//m2m
+    //比如知道一个邮件对象post，一个标记对象tag，插入他们的对应关系
+    O.Begin()
+    //step1:插入post，获取m2m对象
+    user := User{Id: 1}
+    O.Read(&user)                                    //读取user
+    post := Post{Title: "kakaxi开启写轮眼了", User: &user} //拼接post
+    id, err := O.Insert(&post)                       //插入post
+    if err != nil {
+        O.Rollback()
+        return err
+    } else {
+        fmt.Println("insert post success")
+    }
+    post = Post{Id: int(id)}
+    m2m := O.QueryM2M(&post, "Tags") //创建m2m对象，Tags为关联属性
+    //step2:插入tag
+    tag := Tag{Name: "娱乐"}
+    _, err = O.Insert(&tag)
+    if err != nil {
+        O.Rollback()
+        return err
+    } else {
+        fmt.Println("insert tag success")
+    }
+    //step3:插入关系表
+    num, err := m2m.Add(&tag)
+    if err != nil {
+        O.Rollback()
+        return err
+    } else {
+        fmt.Println("insert post_tags success,added nums:", num)
+    }
+    O.Commit()
+    return nil
+    
+    
+    
+
+
+
+
+
+
+
+
