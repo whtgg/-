@@ -1,2 +1,2 @@
 # wht
-try best
+自动创建表
